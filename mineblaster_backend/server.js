@@ -35,6 +35,8 @@ app.use(cors({
     'http://localhost:5175',
     'http://localhost:5176',
     'http://localhost:3000',
+    'https://blastwatcher2429.vercel.app',
+    'https://mineblaster869.vercel.app',
     process.env.CORS_ORIGIN
   ].filter(Boolean),
   credentials: true
