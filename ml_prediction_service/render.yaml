@@ -1,0 +1,18 @@
+# Render.com build configuration for ML Service
+build:
+  commands:
+    - pip install -r requirements.txt
+  
+services:
+  - type: web
+    name: mineblast-ml-service
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8009
+      - key: PYTHON_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: https://mineblaster869.vercel.app,https://blastwatcher869.vercel.app
