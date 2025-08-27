@@ -2,13 +2,8 @@ import axios from 'axios'
 
 // Determine the API base URL based on environment
 const getApiBaseUrl = () => {
-  // Production URLs - hardcoded
-  if (window.location.hostname === 'blastwatcher2429.vercel.app') {
-    return 'https://blastwatcher869.onrender.com/api/v1'  
-  }
-  
-  // Development
-  return 'http://localhost:5000/api/v1'
+  // Use environment variable in production, fallback to localhost in development
+  return import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1'
 }
 
 // Create axios instance with base configuration

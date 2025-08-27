@@ -2,26 +2,20 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { minesAPI, predictionsAPI } from '../services/api'
+import { minesAPI } from '../services/api'
 import { 
   ArrowLeft,
-  Target,
-  Zap,
-  CheckCircle,
   AlertCircle,
-  TrendingUp,
-  Calculator,
   Loader,
   Mountain,
-  Save,
-  Brain
+  Brain,
+  CheckCircle,
+  Save
 } from 'lucide-react'
 
 const PredictionPage = () => {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
-  const [loading, setLoading] = useState(false)
-  const [prediction, setPrediction] = useState(null)
   const [mines, setMines] = useState([])
   const [error, setError] = useState('')
   const [savingPrediction, setSavingPrediction] = useState(false)
@@ -29,23 +23,18 @@ const PredictionPage = () => {
   const [formData, setFormData] = useState({
     // Mine Information
     mineId: '',
-    predictionId: '',
     
-    // 14 Required Blast Parameters (same as DataEntry)
-    depth: '',
-    burden: '',
-    spacing: '',
-    stemming: '',
-    totalChargeLength: '',
-    explosivePerHole: '',
-    maxChargePerDelay: '',
-    totalExplosiveAmount: '',
-    totalRockBlasted: '',
-    powerFactor: '',
-    distance: '',
-    standardDeviation: '',
-    frequency: ''
+    // ML Model Selection
+    selectedModel: 'linear_regression',
+    
+    // Required parameters for ML prediction
+    distance: '', // Distance (D) in meters
+    maxChargePerDelay: '', // Maximum charge weight per delay (Q) in kg
   })
+  
+  // State for ML predictions
+  const [mlPrediction, setMlPrediction] = useState(null)
+  const [mlLoading, setMlLoading] = useState(false)
 
   useEffect(() => {
     // Only load mines after user is authenticated
@@ -57,7 +46,6 @@ const PredictionPage = () => {
 
   const loadMines = async () => {
     try {
-      setLoading(true);
       setError('');
       
       const response = await minesAPI.getAllMines()
@@ -73,10 +61,64 @@ const PredictionPage = () => {
     } catch (error) {
       console.error('Error loading mines:', error);
       setError('Failed to load mines. Please try again.');
-    } finally {
-      setLoading(false);
     }
   };
+
+  // ML Prediction API call
+  const predictPPV = async (distance, chargeWeight, mineId) => {
+    try {
+      const mlServiceUrl = import.meta.env.VITE_ML_SERVICE_URL || 'http://localhost:8009'
+      const response = await fetch(`${mlServiceUrl}/predict`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          distance: parseFloat(distance),
+          charge_weight: parseFloat(chargeWeight),
+          mine_id: mineId
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      console.log('🤖 ML Prediction Result:', data)
+      return data
+    } catch (error) {
+      console.error('❌ ML Prediction Error:', error)
+      throw error
+    }
+  }
+
+  const handleMLPrediction = async () => {
+    if (!formData.distance || !formData.maxChargePerDelay || !formData.mineId) {
+      setError('Please fill in Distance, Maximum Charge Weight per Delay, and select a Mine for ML prediction')
+      return
+    }
+    
+    setMlLoading(true)
+    setError('')
+    
+    try {
+      const result = await predictPPV(
+        formData.distance, 
+        formData.maxChargePerDelay, 
+        formData.mineId
+      )
+      
+      setMlPrediction(result)
+      console.log('✅ PPV Prediction successful:', result.ppv)
+      
+    } catch (error) {
+      console.error('❌ ML Prediction failed:', error)
+      setError('Failed to get ML prediction. Please check if the ML service is running.')
+    } finally {
+      setMlLoading(false)
+    }
+  }
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -86,88 +128,26 @@ const PredictionPage = () => {
     }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    
-    try {
-      // Generate unique prediction ID
-      const predictionId = `PRED-${Date.now()}`
-      
-      const predictionData = {
-        mineId: formData.mineId,
-        predictionId: predictionId,
-        blastParameters: {
-          depth: parseFloat(formData.depth),
-          burden: parseFloat(formData.burden),
-          spacing: parseFloat(formData.spacing),
-          stemming: parseFloat(formData.stemming),
-          totalChargeLength: parseFloat(formData.totalChargeLength),
-          explosivePerHole: parseFloat(formData.explosivePerHole),
-          maxChargePerDelay: parseFloat(formData.maxChargePerDelay),
-          totalExplosiveAmount: parseFloat(formData.totalExplosiveAmount),
-          totalRockBlasted: parseFloat(formData.totalRockBlasted),
-          powerFactor: parseFloat(formData.powerFactor),
-          distance: parseFloat(formData.distance),
-          standardDeviation: parseFloat(formData.standardDeviation),
-          frequency: parseFloat(formData.frequency)
-        }
-      }
-
-      
-      // Call prediction API
-      const response = await predictionsAPI.createPrediction(predictionData)
-      
-      if (response.success) {
-        setPrediction(response.data.prediction)
-        
-        // Update form with the generated prediction ID
-        setFormData(prev => ({ ...prev, predictionId: predictionId }))
-      } else {
-        throw new Error(response.message || 'Prediction generation failed')
-      }
-    } catch (err) {
-      console.error('Error generating prediction:', err)
-      setError('Failed to generate prediction. Please try again.')
-      
-      // For development: Generate mock prediction if API fails
-      const mockPrediction = {
-        predictionId: `PRED-${Date.now()}`,
-        efficiency: Math.floor(Math.random() * 15) + 80, // 80-95%
-        safety: Math.floor(Math.random() * 10) + 90, // 90-100%
-        fragmentationQuality: Math.floor(Math.random() * 20) + 75, // 75-95%
-        vibrationLevel: (Math.random() * 30 + 20).toFixed(1), // 20-50 mm/s
-        airblastLevel: (Math.random() * 20 + 100).toFixed(1), // 100-120 dB
-        environmentalImpact: Math.floor(Math.random() * 20) + 70, // 70-90%
-        costEfficiency: Math.floor(Math.random() * 15) + 80, // 80-95%
-        recommendations: [
-          "Consider adjusting burden distance for optimal fragmentation",
-          "Current explosive amount is well-suited for the rock type",
-          "Weather conditions are favorable for the blast operation",
-          "Monitor vibration levels near sensitive structures"
-        ],
-        confidence: Math.floor(Math.random() * 15) + 85, // 85-100%
-        createdAt: new Date().toISOString()
-      }
-      
-      setPrediction(mockPrediction)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const savePrediction = async () => {
-    if (!prediction) return
+    if (!mlPrediction) return
     
     setSavingPrediction(true)
     try {
-      // Here you would save the prediction to the database
+      // Here you would save the ML prediction to the database
+      console.log('💾 Saving ML Prediction:', {
+        mineId: formData.mineId,
+        distance: formData.distance,
+        chargeWeight: formData.maxChargePerDelay,
+        ppv: mlPrediction.ppv,
+        scaledDistance: mlPrediction.scaled_distance,
+        modelUsed: mlPrediction.model_used,
+        timestamp: new Date().toISOString()
+      })
       
       // Mock save operation
       setTimeout(() => {
         setSavingPrediction(false)
-        alert('Prediction saved successfully!')
+        alert('✅ ML Prediction saved successfully!')
       }, 1000)
       
     } catch (err) {
@@ -179,7 +159,7 @@ const PredictionPage = () => {
 
   const formSections = [
     {
-      title: "Mine & Prediction Information",
+      title: "Mine & Model Selection",
       icon: <Mountain className="w-5 h-5" />,
       fields: [
         { 
@@ -189,32 +169,40 @@ const PredictionPage = () => {
           options: mines.map(mine => ({ value: mine._id, label: mine.name })),
           required: true 
         },
-        { name: 'predictionId', label: 'Prediction ID', type: 'text', placeholder: 'Auto-generated', disabled: true }
+        {
+          name: 'selectedModel',
+          label: 'Prediction Model',
+          type: 'select',
+          options: [
+            { value: 'linear_regression', label: '🤖 Linear Regression (Active)' },
+            { value: 'coming_soon', label: '🚧 Advanced ML Model (Coming Soon)' }
+          ],
+          required: true
+        }
       ]
     },
     {
-      title: "Primary Blast Parameters (1-7)",
-      icon: <Zap className="w-5 h-5" />,
+      title: "🎯 ML Prediction Parameters (Required)",
+      icon: <Brain className="w-5 h-5" />,
       fields: [
-        { name: 'depth', label: '1. Depth (meters)', type: 'number', placeholder: '12.5', step: '0.1', required: true },
-        { name: 'burden', label: '2. Burden (meters)', type: 'number', placeholder: '4.5', step: '0.1', required: true },
-        { name: 'spacing', label: '3. Spacing (meters)', type: 'number', placeholder: '5.5', step: '0.1', required: true },
-        { name: 'stemming', label: '4. Stemming (meters)', type: 'number', placeholder: '3.0', step: '0.1', required: true },
-        { name: 'totalChargeLength', label: '5. Total Charge Length (meters)', type: 'number', placeholder: '9.5', step: '0.1', required: true },
-        { name: 'explosivePerHole', label: '6. Explosive per Hole (kg)', type: 'number', placeholder: '85.5', step: '0.1', required: true },
-        { name: 'maxChargePerDelay', label: '7. Maximum Charge per Delay (kg)', type: 'number', placeholder: '250.0', step: '0.1', required: true }
-      ]
-    },
-    {
-      title: "Secondary Blast Parameters (8-14)",
-      icon: <Calculator className="w-5 h-5" />,
-      fields: [
-        { name: 'totalExplosiveAmount', label: '8. Total Amount of Explosive (kg)', type: 'number', placeholder: '1200.0', step: '0.1', required: true },
-        { name: 'totalRockBlasted', label: '9. Total Rock Blasted (tonnes)', type: 'number', placeholder: '5000', step: '1', required: true },
-        { name: 'powerFactor', label: '10. Power Factor (tonnes per kg)', type: 'number', placeholder: '4.2', step: '0.01', required: true },
-        { name: 'distance', label: '11. Distance (meters)', type: 'number', placeholder: '150', step: '1', required: true },
-        { name: 'standardDeviation', label: '12. SD (Standard Deviation)', type: 'number', placeholder: '2.5', step: '0.01', required: true },
-        { name: 'frequency', label: '13. Frequency (Hz)', type: 'number', placeholder: '25', step: '0.1', required: true }
+        { 
+          name: 'distance', 
+          label: 'Distance (D) - meters', 
+          type: 'number', 
+          placeholder: '186', 
+          step: '0.1', 
+          required: true,
+          description: 'Distance from blast to monitoring point'
+        },
+        { 
+          name: 'maxChargePerDelay', 
+          label: 'Max Charge Weight per Delay (Q) - kg', 
+          type: 'number', 
+          placeholder: '100', 
+          step: '0.1', 
+          required: true,
+          description: 'Maximum charge weight per delay for PPV calculation'
+        }
       ]
     }
   ]
@@ -284,9 +272,9 @@ const PredictionPage = () => {
         animate="visible"
       >
         <motion.div variants={itemVariants} className="mb-8">
-          <h2 className="text-3xl font-bold text-white mb-4">AI Blast Prediction</h2>
+          <h2 className="text-3xl font-bold text-white mb-4">ML Blast Prediction</h2>
           <p className="text-gray-300">
-            Enter the same 14 blast parameters used in data entry to get AI-powered predictions for blast outcomes, efficiency, and safety recommendations.
+            Enter Distance (D) and Maximum Charge Weight per Delay (Q) to get AI-powered PPV predictions using Linear Regression model.
           </p>
           
           {/* Mine Selection Status */}
@@ -334,7 +322,7 @@ const PredictionPage = () => {
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Form Section */}
           <div className="lg:col-span-2">
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={(e) => { e.preventDefault(); handleMLPrediction(); }}>
               <motion.div 
                 className="space-y-8"
                 variants={containerVariants}
@@ -411,24 +399,33 @@ const PredictionPage = () => {
                   </motion.div>
                 ))}
 
-                {/* Submit Button */}
+                {/* Submit Button - Simple ML Prediction */}
                 <motion.div variants={itemVariants}>
                   <motion.button
                     type="submit"
-                    disabled={loading}
-                    className="w-full mining-button py-4 text-lg font-semibold relative overflow-hidden disabled:opacity-50"
-                    whileHover={{ scale: loading ? 1 : 1.02 }}
-                    whileTap={{ scale: loading ? 1 : 0.98 }}
+                    disabled={mlLoading || !formData.distance || !formData.maxChargePerDelay || !formData.mineId || formData.selectedModel === 'coming_soon'}
+                    className="w-full bg-gradient-to-r from-mining-neon/20 to-blue-500/20 border border-mining-neon/50 
+                             hover:from-mining-neon/30 hover:to-blue-500/30 hover:border-mining-neon/70
+                             text-mining-neon hover:text-white py-4 text-lg font-semibold 
+                             transition-all duration-300 rounded-lg mb-4 relative overflow-hidden 
+                             disabled:opacity-50 disabled:cursor-not-allowed"
+                    whileHover={{ scale: mlLoading ? 1 : 1.02 }}
+                    whileTap={{ scale: mlLoading ? 1 : 0.98 }}
                   >
-                    {loading ? (
+                    {mlLoading ? (
                       <div className="flex items-center justify-center">
                         <Loader className="w-5 h-5 mr-2 animate-spin" />
-                        Analyzing Parameters...
+                        Predicting PPV...
+                      </div>
+                    ) : formData.selectedModel === 'coming_soon' ? (
+                      <div className="flex items-center justify-center">
+                        <AlertCircle className="w-5 h-5 mr-2" />
+                        Model Coming Soon
                       </div>
                     ) : (
                       <div className="flex items-center justify-center">
-                        <Target className="w-5 h-5 mr-2" />
-                        Generate Prediction
+                        <Brain className="w-5 h-5 mr-2" />
+                        🤖 Predict PPV with ML
                       </div>
                     )}
                   </motion.button>
@@ -444,138 +441,64 @@ const PredictionPage = () => {
               className="mining-card sticky top-8"
             >
               <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
-                <Target className="w-5 h-5 text-mining-gold mr-2" />
-                Prediction Results
+                <Brain className="w-5 h-5 text-mining-gold mr-2" />
+                ML Prediction Results
               </h3>
 
-              {loading ? (
-                <div className="text-center py-8">
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    className="inline-block mb-4"
-                  >
-                    <Loader className="w-12 h-12 text-mining-neon" />
-                  </motion.div>
-                  <p className="text-gray-400">Analyzing blast parameters...</p>
-                </div>
-              ) : prediction ? (
+              {/* ML Prediction Results */}
+              {mlPrediction && (
                 <motion.div 
-                  className="space-y-6"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.6 }}
+                  className="mb-6 p-4 bg-gradient-to-r from-mining-neon/10 to-blue-500/10 
+                           border border-mining-neon/30 rounded-lg"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5 }}
                 >
-                  {/* Confidence Score */}
-                  <div className="text-center p-4 bg-mining-gold/10 border border-mining-gold/30 rounded-lg">
-                    <div className="text-2xl font-bold text-mining-gold mb-1">
-                      {prediction.confidence}%
-                    </div>
-                    <div className="text-sm text-gray-300">Prediction Confidence</div>
-                  </div>
-
-                  {/* Primary Metrics Grid */}
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div className="bg-gray-800/50 rounded-lg p-4">
-                      <h4 className="text-mining-neon font-medium mb-3">Blast Efficiency</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Overall Efficiency:</span>
-                          <span className="text-mining-gold font-semibold">{prediction.efficiency}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Fragmentation Quality:</span>
-                          <span className="text-mining-copper font-semibold">{prediction.fragmentationQuality}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Energy Utilization:</span>
-                          <span className="text-white font-medium">{prediction.energyUtilization || '85'}%</span>
-                        </div>
+                  <h4 className="text-lg font-semibold text-mining-neon mb-4 flex items-center">
+                    <Brain className="w-5 h-5 mr-2" />
+                    🤖 ML Prediction Results
+                  </h4>
+                  
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-mining-neon mb-1">
+                        {mlPrediction.ppv.toFixed(3)}
                       </div>
+                      <div className="text-sm text-gray-300">Peak Particle Velocity (mm/s)</div>
                     </div>
-
-                    <div className="bg-gray-800/50 rounded-lg p-4">
-                      <h4 className="text-mining-neon font-medium mb-3">Safety & Vibration</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Safety Score:</span>
-                          <span className="text-mining-neon font-semibold">{prediction.safety}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Ground Vibration:</span>
-                          <span className="text-yellow-400 font-semibold">{prediction.vibrationLevel} mm/s</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Air Blast:</span>
-                          <span className="text-red-400 font-semibold">{prediction.airblastLevel} dB</span>
-                        </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-mining-gold mb-1">
+                        {mlPrediction.scaled_distance.toFixed(3)}
                       </div>
-                    </div>
-
-                    <div className="bg-gray-800/50 rounded-lg p-4">
-                      <h4 className="text-mining-neon font-medium mb-3">Environmental Impact</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Noise Level:</span>
-                          <span className="text-white font-medium">{prediction.noiseLevel || '110'} dB</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Dust Generation:</span>
-                          <span className="text-white font-medium">{prediction.dustGeneration || 'Moderate'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Eco Score:</span>
-                          <span className="text-green-400 font-medium">{prediction.ecoScore || '7'}/10</span>
-                        </div>
-                      </div>
+                      <div className="text-sm text-gray-300">Scaled Distance (SD)</div>
                     </div>
                   </div>
-
-                  {/* Cost Analysis */}
-                  <div className="bg-gray-800/50 rounded-lg p-4">
-                    <h4 className="text-mining-neon font-medium mb-3">Cost Analysis</h4>
-                    <div className="grid md:grid-cols-4 gap-4">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-mining-neon">${prediction.explosiveCost || '2,450'}</div>
-                        <div className="text-sm text-gray-400">Explosive Cost</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-mining-neon">${prediction.drillingCost || '1,200'}</div>
-                        <div className="text-sm text-gray-400">Drilling Cost</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-mining-neon">${prediction.totalBlastCost || '3,650'}</div>
-                        <div className="text-sm text-gray-400">Total Blast Cost</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-mining-neon">${prediction.costPerTon || '0.73'}</div>
-                        <div className="text-sm text-gray-400">Cost per Ton</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Recommendations */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-white mb-3 flex items-center">
-                      <CheckCircle className="w-4 h-4 text-green-400 mr-2" />
-                      AI Recommendations
-                    </h4>
-                    <div className="space-y-2">
-                      {prediction.recommendations.map((rec, index) => (
-                        <div key={index} className="flex items-start p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                          <AlertCircle className="w-4 h-4 text-green-400 mr-2 mt-0.5 flex-shrink-0" />
-                          <span className="text-sm text-gray-300">{rec}</span>
+                  
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <div><strong>Mine:</strong> {mlPrediction.mine_id}</div>
+                    <div><strong>Model:</strong> {mlPrediction.model_used}</div>
+                    {mlPrediction.calculation_steps && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-mining-neon hover:text-white">
+                          View Calculation Steps
+                        </summary>
+                        <div className="mt-2 p-2 bg-gray-900/50 rounded text-xs">
+                          {Object.entries(mlPrediction.calculation_steps).map(([step, calc]) => (
+                            <div key={step} className="mb-1">
+                              <strong>{step.replace(/_/g, ' ')}:</strong> {calc}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </details>
+                    )}
                   </div>
-
+                  
                   {/* Save Prediction Button */}
-                  <div className="flex justify-end">
+                  <div className="flex justify-end mt-4">
                     <button
                       onClick={savePrediction}
                       disabled={savingPrediction}
-                      className="px-6 py-3 bg-mining-neon text-gray-900 rounded-lg font-semibold 
+                      className="px-4 py-2 bg-mining-neon text-gray-900 rounded-lg font-semibold text-sm
                                hover:bg-mining-neon/90 transition-all duration-300 flex items-center
                                disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -584,11 +507,26 @@ const PredictionPage = () => {
                     </button>
                   </div>
                 </motion.div>
-              ) : (
+              )}
+
+              {mlLoading && (
+                <div className="text-center py-4 mb-6">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    className="inline-block mb-2"
+                  >
+                    <Brain className="w-8 h-8 text-mining-neon" />
+                  </motion.div>
+                  <p className="text-gray-400">Running ML prediction...</p>
+                </div>
+              )}
+
+              {!mlPrediction && !mlLoading && (
                 <div className="text-center py-8">
-                  <Target className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                  <Brain className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                   <p className="text-gray-400">
-                    Fill out the form and click "Generate Prediction" to see AI-powered blast analysis.
+                    Fill in Distance (D) and Charge Weight (Q), then click "Predict PPV with ML" to see results.
                   </p>
                 </div>
               )}
